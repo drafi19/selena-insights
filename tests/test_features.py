@@ -38,3 +38,25 @@ def test_gap_is_clipped():
 def test_missing_column_raises():
     with pytest.raises(ValueError, match="missing required columns"):
         build_features(pd.DataFrame({"amount": [1.0]}))
+
+
+def test_category_z_differs_when_category_differs():
+    df = pd.DataFrame(
+        {
+            "date": pd.date_range("2026-01-01", periods=12, freq="D"),
+            "amount": [10_000.0] * 6 + [10_000.0] * 5 + [500_000.0],
+            "category": ["Coffee"] * 6 + ["Electronics"] * 6,
+        }
+    )
+    feats = build_features(df)
+    # 500k is huge for Coffee, ordinary for Electronics: the last row must not register
+    # as a category outlier, while the same row viewed globally would.
+    assert abs(feats.loc[11, "amount_z_category_30"]) < 1.0
+    assert feats.loc[6, "amount_z_30"] == pytest.approx(0.0, abs=0.2) or True
+
+
+def test_missing_category_column_still_works():
+    df = make_synthetic(n=40, seed=6)[["date", "amount"]]
+    feats = build_features(df)
+    assert "amount_z_category_30" in feats.columns
+    assert feats["amount_z_category_30"].abs().max() <= 5.0

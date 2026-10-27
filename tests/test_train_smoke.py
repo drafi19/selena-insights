@@ -27,4 +27,4 @@ def test_training_writes_bundle(tmp_path):
     meta = json.loads((out / "metadata.json").read_text())
     assert meta["threshold"] > 0
     assert meta["n_injected"] > 0
-    assert meta["parameters"] == 1774
+    assert meta["parameters"] == 1839  # 7 features (v0.2); 1774 was the 6-feature model

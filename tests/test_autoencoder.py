@@ -18,3 +18,8 @@ def test_reconstruction_error_is_per_row():
     err = model.reconstruction_error(torch.rand(7, 6))
     assert err.shape == (7,)
     assert (err >= 0).all()
+
+
+def test_parameter_count_with_category_feature():
+    # 7 inputs (v0.2) -> 7*32+32 + 528 + 136 + 144 + 544 + 32*7+7
+    assert sum(p.numel() for p in AutoEncoder(n_features=7).parameters()) == 1839

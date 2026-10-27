@@ -26,6 +26,10 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
     out["date"] = pd.to_datetime(out["date"], errors="raise")
     out["amount"] = out["amount"].astype(float).abs()
+    if "category" in out.columns:
+        out["category"] = out["category"].fillna("unknown")
+    else:
+        out["category"] = "unknown"
     out["_pos"] = np.arange(len(out))
 
     # stable sort: transactions on the same date keep their original order
@@ -45,6 +49,18 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
     std = prev.rolling(ROLLING_WINDOW, min_periods=5).std(ddof=0)
     z = (out["log_amount"] - mean) / std.replace(0.0, np.nan)
     out["amount_z_30"] = z.fillna(0.0).clip(-5.0, 5.0)
+
+    # same idea, but relative to the last transactions of the SAME category:
+    # 500k for "Electronics" is normal, 500k for "Coffee" is not.
+    grouped = out.groupby("category", sort=False)["log_amount"]
+    mean_c = grouped.transform(
+        lambda s: s.shift(1).rolling(ROLLING_WINDOW, min_periods=5).mean()
+    )
+    std_c = grouped.transform(
+        lambda s: s.shift(1).rolling(ROLLING_WINDOW, min_periods=5).std(ddof=0)
+    )
+    z_c = (out["log_amount"] - mean_c) / std_c.replace(0.0, np.nan)
+    out["amount_z_category_30"] = z_c.fillna(0.0).clip(-5.0, 5.0)
 
     feats = out.loc[:, ["_pos", *FEATURES]].sort_values("_pos")
     return feats.loc[:, FEATURES].reset_index(drop=True)

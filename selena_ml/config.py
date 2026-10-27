@@ -12,6 +12,7 @@ FEATURES = [
     "month",
     "days_since_prev",
     "amount_z_30",
+    "amount_z_category_30",
 ]
 TIME_SPLIT = (0.70, 0.15, 0.15)
 ARTIFACT_ROOT = Path("artifacts")
