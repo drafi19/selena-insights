@@ -25,12 +25,12 @@ replicates, pooled PR-AUC over ~760 labels). Only the feature set differs.
 | v0.2.0 (7 features, + category z) | 0.215 |
 
 ## Reading
-- A feature only counts as an improvement if the pooled number goes up without the spread
-  collapsing; here it did not.
+- A feature counts only if the pooled number goes up; here it did not.
+- Spread is in `reports/eval.json`; a single pooled number without it is not enough.
 - The synthetic table is the control: with ~7,000 training rows the autoencoder beats the
-  baselines, so the gap on real data is a sample-size problem, not an architecture problem.
-- Caveat: the simulator has no category column, so the 7th feature is degenerate there. The
-  0.197 -> 0.215 difference is run-to-run variance, not evidence about the feature.
+  baselines, so the gap is a sample-size problem, not an architecture problem.
+- Caveat: the simulator has no category column, so the 7th feature is degenerate there.
+  The 0.197 -> 0.215 difference is run-to-run variance, not evidence about the feature.
 - The category feature is active on 56.6% of real rows (13 of 31 categories have >= 6
-  transactions), so a zero effect is not a dead column: it is not enough data per category.
+  transactions), so a zero effect is not a dead column: not enough data per category.
 - Decision recorded in `docs/adr/0002-detector-choice.md`.

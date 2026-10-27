@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -e
+cd "$(git rev-parse --show-toplevel)"
+PY="./.venv/Scripts/python.exe"
+[ -x "$PY" ] || PY="./.venv/bin/python"
+"$PY" -m ruff check . >/dev/null || { echo "ruff failed - run: ./.venv/Scripts/python.exe -m ruff check . --output-format=concise"; exit 1; }
+"$PY" -m pytest -q >/dev/null || { echo "tests failed - run pytest"; exit 1; }
+echo "pre-commit: ruff + pytest ok"

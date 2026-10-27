@@ -43,13 +43,25 @@ def main() -> None:
         cells = [fmt(pooled[m].get("pr_auc")) for m in MODELS]
         lines.append(f"| {label} | " + " | ".join(cells) + " |")
 
-    lines += ["", "## Pooled ROC-AUC", "", "| Feature set | Autoencoder | z-score | IsolationForest |", "|---|---|---|---|"]
+    lines += [
+        "",
+        "## Pooled ROC-AUC",
+        "",
+        "| Feature set | Autoencoder | z-score | IsolationForest |",
+        "|---|---|---|---|",
+    ]
     for label, payload in data.items():
         pooled = payload["pooled"]
         cells = [fmt(pooled[m].get("roc_auc")) for m in MODELS]
         lines.append(f"| {label} | " + " | ".join(cells) + " |")
 
-    lines += ["", "## Synthetic corpus (10k rows, separate model per version)", "", "| Feature set | Autoencoder PR-AUC |", "|---|---|"]
+    lines += [
+        "",
+        "## Synthetic corpus (10k rows, separate model per version)",
+        "",
+        "| Feature set | Autoencoder PR-AUC |",
+        "|---|---|",
+    ]
     for label, payload in data.items():
         synth = payload["synthetic"]["autoencoder"]
         vals = [x["pr_auc"] for x in synth if x.get("pr_auc") is not None]
@@ -59,14 +71,14 @@ def main() -> None:
     lines += [
         "",
         "## Reading",
-        "- A feature only counts as an improvement if the pooled number goes up without the spread",
-        "  collapsing; here it did not.",
+        "- A feature counts only if the pooled number goes up; here it did not.",
+        "- Spread is in `reports/eval.json`; a single pooled number without it is not enough.",
         "- The synthetic table is the control: with ~7,000 training rows the autoencoder beats the",
-        "  baselines, so the gap on real data is a sample-size problem, not an architecture problem.",
-        "- Caveat: the simulator has no category column, so the 7th feature is degenerate there. The",
-        "  0.197 -> 0.215 difference is run-to-run variance, not evidence about the feature.",
+        "  baselines, so the gap is a sample-size problem, not an architecture problem.",
+        "- Caveat: the simulator has no category column, so the 7th feature is degenerate there.",
+        "  The 0.197 -> 0.215 difference is run-to-run variance, not evidence about the feature.",
         "- The category feature is active on 56.6% of real rows (13 of 31 categories have >= 6",
-        "  transactions), so a zero effect is not a dead column: it is not enough data per category.",
+        "  transactions), so a zero effect is not a dead column: not enough data per category.",
         "- Decision recorded in `docs/adr/0002-detector-choice.md`.",
     ]
 
