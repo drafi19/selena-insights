@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+data/raw/
+data/processed/
+build/
+artifacts/**/*.pt
+.env
+.DS_Store
+hs_err_pid*.log

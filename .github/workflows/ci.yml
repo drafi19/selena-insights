@@ -1,0 +1,21 @@
+name: ci
+on:
+  push: { branches: [main] }
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with: { enable-cache: true }
+      - run: uv python install 3.11
+      - run: uv sync
+      - run: uv run ruff check .
+      - run: uv run pytest -q
+      - name: secret scan
+        run: |
+          if git grep -nIE '(AIza[0-9A-Za-z_-]{20,}|refresh_token|BEGIN [A-Z ]*PRIVATE KEY)' -- . ':!legacy' ':!docs'; then
+            echo "secret found"; exit 1
+          fi
+          echo "no secrets"
