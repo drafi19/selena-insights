@@ -32,18 +32,28 @@ This is the number quoted in the README; table A shows the spread.
 
 ## C. Synthetic corpus (10,000 rows, 5% injection)
 
+A separate model is trained on this corpus; the real-data model is not transferred here.
+
 | Model | PR-AUC | Precision | Recall | F1 |
 |---|---|---|---|---|
-| autoencoder | 0.062 +- 0.004 | 0.000 +- 0.000 | 0.000 +- 0.000 | 0.000 +- 0.000 |
-| zscore | 0.192 +- 0.013 | 0.000 +- 0.000 | 0.000 +- 0.000 | 0.000 +- 0.000 |
-| isolation_forest | 0.166 +- 0.007 | 0.067 +- 0.094 | 0.010 +- 0.014 | 0.017 +- 0.025 |
+| autoencoder | 0.197 +- 0.023 | 0.420 +- 0.074 | 0.138 +- 0.041 | 0.207 +- 0.056 |
+| zscore | 0.173 +- 0.015 | 0.098 +- 0.055 | 0.031 +- 0.017 | 0.047 +- 0.026 |
+| isolation_forest | 0.189 +- 0.022 | 0.211 +- 0.063 | 0.036 +- 0.017 | 0.060 +- 0.027 |
 
-## D. Flag rate per category (clean test set)
+## D. Flag rate per category (clean full series)
 
 | Category | n | Flag rate |
 |---|---|---|
+| Restaurants & fast food | 46 | 2.2% |
+| Groceries | 31 | 0.0% |
+| Education & development | 21 | 0.0% |
+| Snacks | 16 | 0.0% |
+| Charity, gifts | 15 | 0.0% |
+| Active sport, fitness | 14 | 0.0% |
+| Non-coffee | 13 | 0.0% |
+| Charges, fees | 12 | 0.0% |
 
-Overall flag rate on the clean test set: **2.6%** (target FPR 1%).
+Overall flag rate on the clean full series: **0.8%** (target FPR 1%).
 A category far above the average means the model punishes that category, not a row.
 
 ## Limitations

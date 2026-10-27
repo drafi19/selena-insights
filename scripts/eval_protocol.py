@@ -35,7 +35,7 @@ from selena_ml.evaluate import metrics_at_threshold, precision_at_k
 from selena_ml.features import build_features
 from selena_ml.models.autoencoder import AutoEncoder
 from selena_ml.scaling import MinMaxJSON
-from selena_ml.train import split_time
+from selena_ml.train import fit_autoencoder, split_time
 
 MODELS = ("autoencoder", "zscore", "isolation_forest")
 SYNTH_SEEDS = 3
@@ -82,11 +82,11 @@ def main() -> None:
     args = ap.parse_args()
 
     model, scaler, thr_ae = load_artifact(Path(args.artifact))
-    train_df, val_df, test_df = split_time(load_transactions(args.data))
+    df = load_transactions(args.data)
+    train_df, val_df, test_df = split_time(df)
 
     S_tr = scaler.transform(build_features(train_df).to_numpy())
     S_va = scaler.transform(build_features(val_df).to_numpy())
-    S_te = scaler.transform(build_features(test_df).to_numpy())
 
     thresholds = {
         "autoencoder": thr_ae,
@@ -127,21 +127,45 @@ def main() -> None:
         for name in MODELS
     }
 
+    # C trains a SEPARATE model on the synthetic corpus. Applying the real-data model to synthetic
+    # rows would only measure domain shift, not how the method behaves with more data.
     synth = simulate_transactions(n=SYNTH_ROWS, seed=SEED + 1)
-    synth_test = synth.iloc[int(len(synth) * 0.8):].reset_index(drop=True)
+    syn_train, syn_val, syn_test = split_time(synth)
+    syn_scaler = MinMaxJSON.fit(build_features(syn_train).to_numpy())
+    Ssyn_tr = syn_scaler.transform(build_features(syn_train).to_numpy())
+    Ssyn_va = syn_scaler.transform(build_features(syn_val).to_numpy())
+
+    syn_model, _, _ = fit_autoencoder(
+        Ssyn_tr, Ssyn_va, epochs=30, batch_size=64, lr=1e-3, patience=5
+    )
+    syn_thresholds = {
+        "autoencoder": float(np.quantile(ae_error(syn_model, Ssyn_va), 1.0 - TARGET_FPR)),
+        "zscore": 3.0,
+        "isolation_forest": float(
+            np.quantile(isolation_forest_scores(Ssyn_tr, Ssyn_va, SEED), 1.0 - TARGET_FPR)
+        ),
+    }
+
     synth_rows: dict[str, list[dict]] = {m: [] for m in MODELS}
     for r in range(SYNTH_SEEDS):
-        injected, labels = inject_anomalies(synth_test, rate=SYNTH_INJECT_RATE, seed=500 + r)
-        S_inj = scaler.transform(build_features(injected).to_numpy())
-        scores = all_scores(model, S_tr, S_inj)
+        injected, labels = inject_anomalies(syn_test, rate=SYNTH_INJECT_RATE, seed=500 + r)
+        S_inj = syn_scaler.transform(build_features(injected).to_numpy())
+        scores = {
+            "autoencoder": ae_error(syn_model, S_inj),
+            "zscore": zscore_scores(Ssyn_tr, S_inj),
+            "isolation_forest": isolation_forest_scores(Ssyn_tr, S_inj, SEED),
+        }
         y = labels["is_injected"].to_numpy().astype(int)
         for name in MODELS:
-            synth_rows[name].append(metrics_at_threshold(y, scores[name], thresholds[name]))
+            synth_rows[name].append(metrics_at_threshold(y, scores[name], syn_thresholds[name]))
 
-    clean_flag = ae_error(model, S_te) > thr_ae
+    # D scores the whole clean series in one pass: the 38-row test slice cannot support a
+    # per-category breakdown, and this is a diagnostic, not a reported metric.
+    S_all = scaler.transform(build_features(df).to_numpy())
+    clean_flag = ae_error(model, S_all) > thr_ae
     per_category: list[dict] = []
-    if "category" in test_df.columns:
-        cat = test_df["category"].fillna("unknown").to_numpy()
+    if "category" in df.columns:
+        cat = df["category"].fillna("unknown").to_numpy()
         for name in sorted(set(cat)):
             mask = cat == name
             if mask.sum() < MIN_CATEGORY_ROWS:
@@ -212,6 +236,8 @@ def main() -> None:
         "",
         f"## C. Synthetic corpus ({SYNTH_ROWS:,} rows, {SYNTH_INJECT_RATE:.0%} injection)",
         "",
+        "A separate model is trained on this corpus; the real-data model is not transferred here.",
+        "",
         "| Model | PR-AUC | Precision | Recall | F1 |",
         "|---|---|---|---|---|",
     ]
@@ -227,7 +253,7 @@ def main() -> None:
 
     lines += [
         "",
-        "## D. Flag rate per category (clean test set)",
+        "## D. Flag rate per category (clean full series)",
         "",
         "| Category | n | Flag rate |",
         "|---|---|---|",
@@ -235,7 +261,7 @@ def main() -> None:
     for d in per_category:
         lines.append(f"| {d['category']} | {d['n']} | {d['flag_rate']:.1%} |")
     lines.append("")
-    overall = f"Overall flag rate on the clean test set: **{clean_flag.mean():.1%}**"
+    overall = f"Overall flag rate on the clean full series: **{clean_flag.mean():.1%}**"
     lines.append(f"{overall} (target FPR 1%).")
     lines.append(
         "A category far above the average means the model punishes that category, not a row."
