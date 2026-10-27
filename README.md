@@ -1,32 +1,55 @@
-# Selena Insights (work in progress)
+# Selena Insights
 
-Personal transaction anomaly detection — rebuilt from my Bangkit capstone into something
-reproducible, evaluated and deployable.
+Personal transaction anomaly detection: a rebuilt ML pipeline from my Bangkit capstone, evaluated
+honestly, served over HTTP, and running on my own wallet data.
 
-**Status:** data layer, model, evaluation and the scoring API all work.
+## Ringkasan (ID)
 
-- Data: my own BudgetBakers Wallet account, read-only via REST API. No one else's transactions.
-- Model: autoencoder (6-32-16-8-16-32-6) vs z-score and IsolationForest.
-- Evaluation: injected anomalies with fixed seeds, PR-AUC, per-type recall, a per-category
-  false-positive check, plus 30 hand-reviewed flags.
+Repo ini adalah re-implementasi pribadi komponen ML dari capstone Bangkit "Selena" - aplikasi
+pencatat keuangan. Isinya: pipeline data yang reproducible, tiga detektor anomali yang diadu dengan
+protokol yang sama, evaluasi berlabel sintetis + review manual, dan API yang bisa dipanggil.
+Datanya rekening Wallet saya sendiri (read-only), bukan data tim. Hasil utamanya justru jujur:
+**autoencoder kalah dari z-score** di 251 transaksi, dan itu ditulis apa adanya.
 
-## Results (251 real transactions, 20 injection replicates, pooled PR-AUC)
+## Status
+
+Data layer, model, evaluation and the scoring API all work. Not yet public, not yet deployed;
+see "What is missing" at the bottom.
+
+## Results
+
+Pooled over 20 injection replicates (760 labels, 10.5% positive), test set 38 rows, calibrated at
+a 1% false-positive rate:
 
 | Detector | PR-AUC | ROC-AUC | Recall @ FPR 1% |
 |---|---|---|---|
-| Autoencoder (6 features) | 0.170 | 0.598 | 0.025 |
-| Autoencoder (7 features) | 0.154 | 0.570 | 0.025 |
+| Autoencoder, 6 features | 0.170 | 0.598 | 0.025 |
+| Autoencoder, 7 features (+ category) | 0.154 | 0.570 | 0.025 |
 | z-score | 0.296 | 0.791 | 0.138 |
-| IsolationForest | 0.320 | 0.762 | 0.037 |
+| IsolationForest | 0.318 | 0.762 | 0.037 |
 
-Chance level is 0.105 (10.5% injected positives). **The autoencoder loses.** On a 10,000-row
-synthetic corpus with ~7,000 training rows it wins (PR-AUC 0.197 vs 0.173), so the gap is a
-sample-size problem: 175 training rows cannot support a 1,839-parameter model.
+Chance level is 0.105. **The autoencoder loses.** On a 10,000-row synthetic corpus with ~7,000
+training rows it beats both baselines (PR-AUC 0.215 vs 0.173), so the gap is sample size - 175
+training rows cannot support 1,839 parameters. Adding a category-relative feature did not help on
+real data; that negative ablation is published in `reports/ablation.md`.
 
-Adding a category-relative feature did not help and is published as a negative ablation:
-`reports/ablation.md`. Decision: `docs/adr/0002-detector-choice.md`.
+Serving therefore defaults to the detector that won on evidence, not the one with the better
+resume: `detector` is part of every API response (`docs/adr/0002-detector-choice.md`).
 
-Full numbers: `reports/eval.md`, `reports/v0.2/eval.md`, `reports/eval.json`.
+## How it works
+
+1. **Data** - Wallet REST API (read-only), then four filters: transfers between my own accounts,
+   the lending ledger, income, and zero-amount placeholders. Result: 251 spending rows from 567
+   records over 92 days (`data/README.md`).
+2. **Features** - seven, all causal (row *i* only sees rows <= *i*): log amount, day of week, day
+   of month, month, days since previous transaction, rolling z-score of amount, rolling z-score
+   within the same category.
+3. **Detectors** - autoencoder (7-32-16-8-16-32-7) plus two baselines, each with its own threshold
+   calibrated on a clean holdout at 1% FPR.
+4. **Labels** - none exist, so anomalies are injected with a fixed seed (spike, duplicate,
+   round-number burst, micro-drip) and metrics are pooled across 20 replicates.
+5. **Serving** - the model is exported to ONNX; FastAPI keeps pandas for features and onnxruntime
+   for inference, so the container does not need torch.
 
 ## Run it
 
@@ -36,6 +59,7 @@ uv run python -m selena_ml.data.wallet_client      # read-only pull, needs ~/.wa
 uv run python -m selena_ml.data.prepare            # transfer / lending / income filtered out
 uv run python -m selena_ml.train --out artifacts/v0.3.0 --version v0.3.0
 uv run python -m scripts.export_onnx --artifact artifacts/v0.3.0
+uv run python -m scripts.eval_protocol --artifact artifacts/v0.3.0
 uv run uvicorn selena_ml.serve.app:app --port 8000
 ```
 
@@ -47,14 +71,59 @@ curl -s -X POST localhost:8000/score -H 'content-type: application/json' \
 ```
 
 `/score` returns one row per input, in input order, with `detector`, `threshold`, `score` and
-`is_anomaly`. Default detector is `zscore` - that is what won on the evidence, not the autoencoder
-(`docs/adr/0002-detector-choice.md`). `/` serves a dashboard on synthetic rows; `/metrics` returns
-the offline evaluation numbers.
+`is_anomaly`. `/` serves a dashboard on synthetic rows; `/metrics` returns the offline numbers.
 
-Latency, in-process benchmark (`uv run python -m scripts.bench`, 50 rows/request, 100 requests):
-**p50 27 ms, p95 41 ms**. Most of it is pandas feature building, not the model.
+Latency, in-process benchmark (50 rows/request, 100 requests): **p50 27 ms, p95 41 ms**. Most of
+it is pandas feature building, not the model.
 
-The Docker image for the demo lives in `deploy/space/`. It was **not** built on this machine
-(no Docker installed); it will be built by the Hugging Face Spaces runner.
+## Repo layout
 
-Full plan: `.hermes/plans/2026-10-27_091556-selena-insights-portfolio-revival.md` (local).
+```
+selena_ml/data/     wallet client, filters, loader, simulator, anomaly injection
+selena_ml/          features, scaling, baselines, autoencoder, train, evaluate
+selena_ml/serve/    pydantic schema + FastAPI app
+scripts/            audit, eval protocol, ONNX export, ablation, benchmark, deploy
+reports/            generated eval + ablation (never hand-edited)
+artifacts/v0.3.0/   model.pt, model.onnx, scaler.json, zscore.json, threshold.json, metadata.json
+docs/               model card, ADR, bug write-up, security note, wallet audit
+```
+
+## Limitations
+
+1. **One person, 92 days.** No cross-user generalisation is claimed or possible.
+2. **Labels are synthetic.** The metrics measure sensitivity to injected patterns, not real fraud.
+3. **Manual logging.** Transactions I did not record do not exist in the series.
+4. **Heavy tail.** Big purchases are normal for me, so magnitude is a weak signal; "unusual for me
+   but ordinary in size" anomalies will be missed.
+5. **38-row test set.** Every per-replicate number is noisy, which is why the protocol pools
+   replicates instead of quoting one run.
+
+## Credits and scope of this work
+
+The original Selena capstone was a seven-person Bangkit team project
+([drafi19/Selena-App](https://github.com/drafi19/Selena-App), a fork of
+[itsmaul/Selena-App](https://github.com/itsmaul/Selena-App)):
+
+- Machine Learning: Amin Afif Rafi'i, Risma Auliya Salsabilla, Calista Salsabila Citra Putri Winanto
+- Cloud Computing: Afridho Ikhsan, Rizki Septiana
+- Mobile Development: Aditya Daffa Syahputra, Ajeng Puspa Andini
+
+**What this repository is:** my own re-implementation of the ML component, written after the
+programme, with a different data source, a different tech stack and an evaluation protocol the
+original never had. **What it is not:** the team deliverable. The Android app and the Node/Express
+backend were built by the CC and MD members; none of their code is included here, and the GCP
+deployment was theirs, not mine. The original notebook is not republished either.
+
+That boundary is also why this repo uses my own wallet data: the capstone dataset mixed three
+teammates' bank statements with a public Kaggle dump, and permission to republish it cannot be
+obtained.
+
+## License
+
+MIT - see `LICENSE`.
+
+## What is missing
+
+- Public deployment (Hugging Face Space) and a public repo.
+- 30 hand-reviewed flags for a human-labelled precision number (`scripts.review_flags`).
+- Case study, blog posts, demo GIF, interview Q&A.
