@@ -147,7 +147,11 @@ def main() -> None:
             if mask.sum() < MIN_CATEGORY_ROWS:
                 continue
             per_category.append(
-                {"category": name, "n": int(mask.sum()), "flag_rate": float(clean_flag[mask].mean())}
+                {
+                    "category": name,
+                    "n": int(mask.sum()),
+                    "flag_rate": float(clean_flag[mask].mean()),
+                }
             )
     per_category.sort(key=lambda d: (-d["flag_rate"], -d["n"]))
 
@@ -194,7 +198,13 @@ def main() -> None:
             f"{mean_std([pp['f1']])} |"
         )
 
-    lines += ["", "## B. Recall per anomaly type (autoencoder)", "", "| Type | Recall |", "|---|---|"]
+    lines += [
+        "",
+        "## B. Recall per anomaly type (autoencoder)",
+        "",
+        "| Type | Recall |",
+        "|---|---|",
+    ]
     for kind in ANOMALY_TYPES:
         lines.append(f"| {kind} | {mean_std(by_type[kind])} |")
 
@@ -225,16 +235,19 @@ def main() -> None:
     for d in per_category:
         lines.append(f"| {d['category']} | {d['n']} | {d['flag_rate']:.1%} |")
     lines.append("")
-    lines.append(f"Overall flag rate on the clean test set: **{clean_flag.mean():.1%}** (target FPR 1%).")
-    lines.append("A category far above the average means the model punishes that category, not a row.")
+    overall = f"Overall flag rate on the clean test set: **{clean_flag.mean():.1%}**"
+    lines.append(f"{overall} (target FPR 1%).")
+    lines.append(
+        "A category far above the average means the model punishes that category, not a row."
+    )
 
     lines += [
         "",
         "## Limitations",
         "- Labels come from synthetic injection, not human judgement. These numbers measure",
         "  sensitivity to the patterns we defined, not every kind of fraud.",
-        "- Table A reuses one trained model across replicates; the variance comes from which rows were",
-        "  mutated, not from the weights (that is the seed sweep).",
+        "- Table A reuses one trained model across replicates; the variance comes from",
+        "  which rows were mutated, not from the weights (that is the seed sweep).",
         "- Table C must never be averaged together with table A.",
         "- Human-labelled precision lives in `reports/manual_review.md` (T25b).",
     ]

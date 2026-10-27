@@ -49,7 +49,7 @@ A category far above the average means the model punishes that category, not a r
 ## Limitations
 - Labels come from synthetic injection, not human judgement. These numbers measure
   sensitivity to the patterns we defined, not every kind of fraud.
-- Table A reuses one trained model across replicates; the variance comes from which rows were
-  mutated, not from the weights (that is the seed sweep).
+- Table A reuses one trained model across replicates; the variance comes from
+  which rows were mutated, not from the weights (that is the seed sweep).
 - Table C must never be averaged together with table A.
 - Human-labelled precision lives in `reports/manual_review.md` (T25b).
