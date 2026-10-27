@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Selena Insights</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"
+        integrity="sha384-dug+JxfBvklEQdJ4AYuBBAIScUz0bVN73xpy273gcAwHjb3qI0fXmuYNaNfdyYJG"
+        crossorigin="anonymous"></script>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 16px/1.5 system-ui, sans-serif; margin: 0; padding: 32px; max-width: 980px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  p.sub { margin: 0 0 24px; opacity: .7; }
+  #stats { display: flex; gap: 24px; margin: 16px 0 24px; flex-wrap: wrap; }
+  #stats div { padding: 12px 16px; border: 1px solid #8883; border-radius: 10px; }
+  #stats b { display: block; font-size: 22px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #8883; }
+  tr.flag td { font-weight: 600; }
+</style>
+</head>
+<body>
+  <h1>Selena Insights</h1>
+  <p class="sub">Personal transaction anomaly detection &mdash; demo on synthetic rows, never real data.</p>
+  <canvas id="chart" height="110"></canvas>
+  <div id="stats"></div>
+  <table>
+    <thead><tr><th>Date</th><th>Category</th><th>Amount</th><th>Score</th><th>Flagged</th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+<script>
+const fmt = new Intl.NumberFormat('id-ID');
+const cell = (text, tag = 'td') => {
+  const el = document.createElement(tag);
+  el.textContent = String(text);
+  return el;
+};
+
+async function main() {
+  const { transactions } = await (await fetch('/sample')).json();
+  const res = await (await fetch('/score', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ transactions })
+  })).json();
+
+  new Chart(document.getElementById('chart'), {
+    type: 'line',
+    data: {
+      labels: res.results.map(r => r.date),
+      datasets: [{
+        label: 'Amount', data: res.results.map(r => r.amount),
+        borderWidth: 2, tension: .25,
+        pointBackgroundColor: res.results.map(r => r.is_anomaly ? '#e11d48' : '#64748b'),
+        pointRadius: res.results.map(r => r.is_anomaly ? 6 : 3)
+      }]
+    },
+    options: { plugins: { legend: { display: false } }, scales: { y: { type: 'logarithmic' } } }
+  });
+
+  const stats = document.getElementById('stats');
+  for (const [value, label] of [
+    [res.results.length, 'transactions scored'],
+    [res.flagged, 'flagged'],
+    [res.detector, 'detector'],
+    [res.threshold.toFixed(2), 'threshold']
+  ]) {
+    const box = document.createElement('div');
+    const b = document.createElement('b');
+    b.textContent = String(value);
+    box.append(b, document.createTextNode(label));
+    stats.append(box);
+  }
+
+  const tbody = document.getElementById('rows');
+  for (const r of res.results) {
+    const tr = document.createElement('tr');
+    if (r.is_anomaly) tr.className = 'flag';
+    tr.append(cell(r.date), cell(r.category || '-'), cell(fmt.format(r.amount)),
+              cell(r.score.toFixed(2)), cell(r.is_anomaly ? 'yes' : '-'));
+    tbody.append(tr);
+  }
+}
+main();
+</script>
+</body>
+</html>

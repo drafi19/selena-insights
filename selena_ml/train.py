@@ -142,6 +142,17 @@ def main() -> None:
 
     torch.save(model.state_dict(), out / "model.pt")
     scaler.to_json(out / "scaler.json")
+    # the z-score detector needs the training statistics at inference time
+    (out / "zscore.json").write_text(
+        json.dumps(
+            {
+                "mu": S_tr.mean(axis=0).tolist(),
+                "sd": (S_tr.std(axis=0) + 1e-6).tolist(),
+                "threshold": 3.0,
+            },
+            indent=2,
+        )
+    )
     (out / "threshold.json").write_text(
         json.dumps({"threshold": threshold, "target_fpr": TARGET_FPR}, indent=2)
     )
@@ -161,6 +172,7 @@ def main() -> None:
         "n_val": len(val_df),
         "n_test": len(test_df),
         "n_injected": int(y.sum()),
+        "detector_default": "zscore",
         "data_sha256": sha256_file(args.data),
         "metrics": results,
     }
