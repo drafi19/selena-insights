@@ -7,6 +7,8 @@ data/raw/
 data/processed/
 build/
 artifacts/sweep-seed-*/
+artifacts/repro/
+reports/repro/
 .env
 .DS_Store
 hs_err_pid*.log
