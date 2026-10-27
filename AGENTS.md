@@ -17,3 +17,11 @@
 6. If a test fails because of the data, fix the data - never weaken the assertion.
 7. Never print individual amounts, counterparties or notes from Wallet data into logs,
    reports, commits or answers. Aggregates only.
+
+## Environment quirks on this machine (verified)
+- The `rtk` shell hook can swallow pytest's summary line ("No tests collected" even when 30 pass).
+  Verify with `./.venv/Scripts/python.exe -m pytest --junitxml=<native path> -q` and read the XML.
+- Running a script by path (`python scripts/foo.py`) does not put the repo root on `sys.path`.
+  Use `python -m scripts.foo`, or prefix `PYTHONPATH=.`.
+- MSYS paths (`/c/...`) are not translated for native programs when passing file arguments; use
+  `C:/...` style paths.
