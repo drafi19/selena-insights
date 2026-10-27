@@ -42,6 +42,14 @@ real data; that negative ablation is published in `reports/ablation.md`.
 Serving therefore defaults to the detector that won on evidence, not the one with the better
 resume: `detector` is part of every API response (`docs/adr/0002-detector-choice.md`).
 
+### The only human-labelled number
+
+I reviewed the top 30 flags myself: **4 were genuinely unusual, 26 were normal - precision@30 =
+0.133** (`reports/manual_review_summary.md`). Three of the four sit at 3.05, barely above the 3.0
+threshold, and 25 of the 30 flags are driven by `days_since_prev` rather than by the amount: the
+detector mostly notices long gaps between transactions, and a gap is a holiday, not an anomaly.
+That is the honest state of v0.3.0 and the starting point for v0.4.
+
 ## How it works
 
 1. **Data** - Wallet REST API (read-only), then four filters: transfers between my own accounts,

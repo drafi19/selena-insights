@@ -42,6 +42,12 @@ therefore defaults to the z-score detector; the autoencoder remains available fo
 Details: `reports/ablation.md`, `docs/adr/0002-detector-choice.md`.
 
 ## Bias and risks
+
+**The ranking is dominated by a weak feature.** Manual review of the 30 highest-scoring rows gave
+precision@30 = 0.133 (4 true positives). 25 of the 30 were driven by `days_since_prev`, not by the
+amount, so the model mostly reacts to long gaps between transactions. The feature is also clipped
+at 60 days, which makes long gaps collapse onto identical scores and produces ties at the top of
+the ranking. Any deployment decision made from the flag list inherits this bias.
 1. **One person, one population.** No generalisation claim is possible or intended.
 2. **Synthetic labels.** Anomalies are injected (spike, duplicate, round-number burst, micro-drip),
    so the metrics measure sensitivity to patterns I defined - not to real fraud.

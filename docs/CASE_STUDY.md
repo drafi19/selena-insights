@@ -141,8 +141,11 @@ have been the actual failure.
 2. Make the anomaly definition harder: "ordinary amount, impossible time", "amount consistent
    with the category but inconsistent with the day", duplicates across accounts. Right now the
    benchmark mostly measures magnitude.
-3. Add the 30 hand-reviewed flags as a human-labelled precision number. It is 30 rows, but it is
-   real labels instead of injected ones.
+3. (Done, and it did not flatter the model.) I hand-reviewed the 30 highest-scoring flags:
+   **precision@30 = 0.133**, 4 genuinely unusual, 26 normal. Twenty-five of the thirty were driven by
+   `days_since_prev` rather than by the amount, and the feature is clipped at 60 days, so long gaps
+   collapse onto identical scores and produce ties. The detector mostly notices holidays. Fixing
+   that is v0.4 work - changing it now would silently invalidate every number above.
 
 ## Limitations
 
