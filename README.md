@@ -1,5 +1,7 @@
 # Selena Insights
 
+[![CI](https://github.com/drafi19/selena-insights/actions/workflows/ci.yml/badge.svg)](https://github.com/drafi19/selena-insights/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 Personal transaction anomaly detection: a rebuilt ML pipeline from my Bangkit capstone, evaluated
 honestly, served over HTTP, and running on my own wallet data.
 
@@ -13,8 +15,12 @@ Datanya rekening Wallet saya sendiri (read-only), bukan data tim. Hasil utamanya
 
 ## Status
 
-Data layer, model, evaluation and the scoring API all work. Not yet public, not yet deployed;
-see "What is missing" at the bottom.
+Data layer, model, evaluation and the scoring API all work, and the repo is public. Not deployed
+yet - see "What is missing" at the bottom.
+
+Start here: **[case study](docs/CASE_STUDY.md)** · [model card](docs/MODEL_CARD.md) ·
+[why the autoencoder lost](reports/ablation.md) · [12 interview Q&A](docs/INTERVIEW_QA.md) ·
+[blog: the model lost to a z-score](docs/blog/01-model-saya-kalah-dari-z-score.md)
 
 ## Results
 
@@ -76,6 +82,28 @@ curl -s -X POST localhost:8000/score -H 'content-type: application/json' \
 Latency, in-process benchmark (50 rows/request, 100 requests): **p50 27 ms, p95 41 ms**. Most of
 it is pandas feature building, not the model.
 
+## Reproduce every check
+
+```bash
+bash scripts/verify_all.sh
+```
+
+Actual output on a clean clone (no private data present):
+
+```
+== 1/4 lint
+== 2/4 tests
+== 3/4 serving smoke (no private data needed)
+health: {"status": "ok", "model_version": "v0.3.0", "detector_default": "zscore", "features": 7}
+scored 10 demo rows with detector=zscore, threshold=3.000, flagged=3
+smoke ok
+== 4/4 SKIPPED: data/processed/spending.parquet not present (private Wallet export).
+```
+
+With the private export in place, stage 4 instead trains a fresh artefact, exports ONNX, re-runs
+the evaluation protocol and the ablation, ending with `done: reports/repro/eval.md`. Nothing in
+this repo requires that file to be readable by anyone else.
+
 ## Repo layout
 
 ```
@@ -124,6 +152,7 @@ MIT - see `LICENSE`.
 
 ## What is missing
 
-- Public deployment (Hugging Face Space) and a public repo.
-- 30 hand-reviewed flags for a human-labelled precision number (`scripts.review_flags`).
-- Case study, blog posts, demo GIF, interview Q&A.
+- Public deployment (the Hugging Face Space image is ready in `deploy/space/`, not pushed yet).
+- 30 hand-reviewed flags for a human-labelled precision number (`scripts.review_flags` produces
+  the CSV; the review itself is manual).
+- A demo GIF.
