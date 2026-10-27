@@ -14,3 +14,4 @@ reports/repro/
 hs_err_pid*.log
 reports/manual_review.csv
 reports/manual_review.md
+reports/manual_review.html
