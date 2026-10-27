@@ -6,6 +6,9 @@ __pycache__/
 data/raw/
 data/processed/
 build/
+artifacts/sweep-seed-*/
 .env
 .DS_Store
 hs_err_pid*.log
+reports/manual_review.csv
+reports/manual_review.md

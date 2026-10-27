@@ -41,8 +41,9 @@ def fit_autoencoder(
     batch_size: int = 32,
     lr: float = 1e-3,
     patience: int = 20,
+    seed: int = SEED,
 ) -> tuple[AutoEncoder, float, int]:
-    torch.manual_seed(SEED)
+    torch.manual_seed(seed)
     torch.set_num_threads(1)
     model = AutoEncoder(X.shape[1])
     opt = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
@@ -93,6 +94,7 @@ def main() -> None:
     ap.add_argument("--lr", type=float, default=1e-3)
     ap.add_argument("--patience", type=int, default=20)
     ap.add_argument("--version", default="v0.1.0")
+    ap.add_argument("--seed", type=int, default=SEED)
     args = ap.parse_args()
 
     out = Path(args.out)
@@ -111,7 +113,7 @@ def main() -> None:
     S_va = scaler.transform(X_va)
 
     model, best_val_loss, epochs_run = fit_autoencoder(
-        S_tr, S_va, args.epochs, args.batch_size, args.lr, args.patience
+        S_tr, S_va, args.epochs, args.batch_size, args.lr, args.patience, args.seed
     )
 
     err_va = ae_error(model, S_va)
@@ -120,7 +122,7 @@ def main() -> None:
     threshold = float(np.quantile(err_va, 1.0 - TARGET_FPR))
     thr_if = float(np.quantile(isolation_forest_scores(S_tr, S_va, SEED), 1.0 - TARGET_FPR))
 
-    test_injected, labels = inject_anomalies(test_df, rate=INJECT_RATE, seed=SEED)
+    test_injected, labels = inject_anomalies(test_df, rate=INJECT_RATE, seed=args.seed)
     S_inj = scaler.transform(build_features(test_injected).to_numpy())
     err_inj = ae_error(model, S_inj)
 
@@ -163,7 +165,7 @@ def main() -> None:
         "features": FEATURES,
         "hidden": [32, 16, 8],
         "parameters": int(sum(p.numel() for p in model.parameters())),
-        "seed": SEED,
+        "seed": args.seed,
         "epochs_run": epochs_run,
         "best_val_loss": best_val_loss,
         "threshold": threshold,

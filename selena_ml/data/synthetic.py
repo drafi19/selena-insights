@@ -21,6 +21,8 @@ def make_synthetic(n: int = 240, seed: int = 7) -> pd.DataFrame:
     return pd.DataFrame({"date": dates, "amount": amount, "direction": direction})
 
 
+WEEKEND_MULT = 0.8
+
 EXPENSE_REGIMES = (
     (0.62, 8.9, 0.8),    # small: parking, coffee, transport
     (0.25, 9.9, 0.7),    # daily groceries
@@ -55,7 +57,8 @@ def simulate_transactions(
     is_weekend = dates.dayofweek.to_numpy() >= 5
 
     amount = _draw_expense(rng, n)
-    amount = np.where(is_weekend, amount * 1.25, amount)
+    # the audit shows weekend spending is LOWER for this user (0.77x), not higher
+    amount = np.where(is_weekend, amount * WEEKEND_MULT, amount)
 
     direction = np.where(rng.random(n) < income_share, "income", "expense")
     salary = rng.lognormal(14.2, 0.45, size=n)

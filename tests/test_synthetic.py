@@ -30,7 +30,8 @@ def test_simulator_deterministic_and_sized():
 def test_simulator_has_structure_and_sane_scale():
     df = simulate_transactions(n=4000, seed=5)
     is_weekend = df["date"].dt.dayofweek >= 5
-    assert df.loc[is_weekend, "amount"].median() > df.loc[~is_weekend, "amount"].median()
+    # real data shows a weekend dip, so the simulator must reproduce the direction
+    assert df.loc[is_weekend, "amount"].median() < df.loc[~is_weekend, "amount"].median()
     median = df["amount"].median()
     assert 5_000 < median < 60_000            # audit 2026-10-27: median 12k
     share_income = (df["direction"] == "income").mean()

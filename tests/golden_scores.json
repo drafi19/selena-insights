@@ -1,0 +1,39 @@
+{
+  "artifact": "artifacts\\v0.3.0",
+  "detector": "zscore",
+  "threshold": 3.0,
+  "input": [
+    {
+      "date": "2023-01-01",
+      "amount": 1169000.0,
+      "category": "Education & development"
+    },
+    {
+      "date": "2023-01-01",
+      "amount": 125000.0,
+      "category": "Coffee"
+    },
+    {
+      "date": "2023-01-01",
+      "amount": 6000.0,
+      "category": "Coffee"
+    },
+    {
+      "date": "2023-01-02",
+      "amount": 4000.0,
+      "category": "Education & development"
+    },
+    {
+      "date": "2023-01-02",
+      "amount": 9000.0,
+      "category": "Transportation"
+    }
+  ],
+  "scores": [
+    2.68923069,
+    1.90590944,
+    1.90590944,
+    3.05105992,
+    1.90590944
+  ]
+}
