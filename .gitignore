@@ -4,7 +4,6 @@ __pycache__/
 data/raw/
 data/processed/
 build/
-artifacts/**/*.pt
 .env
 .DS_Store
 hs_err_pid*.log
