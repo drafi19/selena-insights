@@ -1,0 +1,22 @@
+# Render blueprint - the free path to a public URL.
+#
+# Hugging Face Docker Spaces now require a PRO subscription (HTTP 402 on repo create),
+# so this is the deploy target that costs nothing. Click "New > Blueprint" in Render and
+# point it at this repo; everything below is already decided.
+#
+# Free tier sleeps after 15 minutes of inactivity, so the first request after a quiet
+# period pays a ~50 s cold start. That is a Render limitation, not a model one - the model
+# itself answers in ~30 ms.
+services:
+  - type: web
+    name: selena-insights
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./deploy/space/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: SELENA_ARTIFACT_DIR
+        value: /app/artifacts/v0.3.0

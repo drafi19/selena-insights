@@ -19,7 +19,7 @@ Data layer, model, evaluation and the scoring API all work, and the repo is publ
 yet - see "What is missing" at the bottom.
 
 Start here: **[case study](docs/CASE_STUDY.md)** · [model card](docs/MODEL_CARD.md) ·
-[why the autoencoder lost](reports/ablation.md) · [12 interview Q&A](docs/INTERVIEW_QA.md) ·
+[why the autoencoder lost](reports/ablation.md) ·
 [blog: the model lost to a z-score](docs/blog/01-model-saya-kalah-dari-z-score.md)
 
 ## Results
@@ -152,7 +152,9 @@ MIT - see `LICENSE`.
 
 ## What is missing
 
-- Public deployment (the Hugging Face Space image is ready in `deploy/space/`, not pushed yet).
+- Public deployment. Hugging Face now returns **402 Payment Required** for Docker Spaces on a
+  free account, so the image sits in `deploy/space/` unused; `render.yaml` is the free blueprint
+  that builds the same Dockerfile. Neither is live yet.
 - 30 hand-reviewed flags for a human-labelled precision number (`scripts.review_flags` produces
   the CSV; the review itself is manual).
 - A demo GIF.
