@@ -18,11 +18,15 @@
   table { width: 100%; border-collapse: collapse; font-size: 14px; }
   th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #8883; }
   tr.flag td { font-weight: 600; }
+.note{color:var(--muted);font-size:12.5px;max-width:70ch;margin:6px 0 18px}
 </style>
 </head>
 <body>
   <h1>Selena Insights</h1>
   <p class="sub">Personal transaction anomaly detection &mdash; demo on synthetic rows, never real data.</p>
+  <p class="note">The detector was calibrated on one real account, so these synthetic rows sit
+  slightly out of distribution: expect a much higher flag rate here (~1 in 3) than the 0.8%
+  measured on real data. This page demonstrates the pipeline, it is not a performance number.</p>
   <canvas id="chart" height="110"></canvas>
   <div id="stats"></div>
   <table>
