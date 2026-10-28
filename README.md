@@ -15,8 +15,16 @@ Datanya rekening Wallet saya sendiri (read-only), bukan data tim. Hasil utamanya
 
 ## Status
 
-Data layer, model, evaluation and the scoring API all work, and the repo is public. Not deployed
-yet - see "What is missing" at the bottom.
+Data layer, model, evaluation and the scoring API all work, the repo is public, and the service
+is live: **https://selena-insights.onrender.com**
+
+```bash
+curl -s https://selena-insights.onrender.com/health
+# {"status":"ok","model_version":"v0.3.0","detector_default":"zscore","features":7}
+```
+
+It runs on Render's free tier, so it sleeps after 15 minutes idle and the first request afterwards
+pays a ~50 s cold start. Once awake it answers in ~250 ms; the model itself takes ~30 ms.
 
 Start here: **[case study](docs/CASE_STUDY.md)** · [model card](docs/MODEL_CARD.md) ·
 [why the autoencoder lost](reports/ablation.md) ·
@@ -160,9 +168,8 @@ MIT - see `LICENSE`.
 
 ## What is missing
 
-- Public deployment. Hugging Face now returns **402 Payment Required** for Docker Spaces on a
-  free account, so the image sits in `deploy/space/` unused; `render.yaml` is the free blueprint
-  that builds the same Dockerfile. Neither is live yet.
+- Nothing blocking the repo itself. The Hugging Face Space is unused because Docker Spaces now
+  return **402 Payment Required** on a free account; `render.yaml` is what actually deployed.
 - 30 hand-reviewed flags for a human-labelled precision number (`scripts.review_flags` produces
   the CSV; the review itself is manual).
 - A demo GIF.
