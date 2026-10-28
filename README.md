@@ -26,6 +26,11 @@ curl -s https://selena-insights.onrender.com/health
 It runs on Render's free tier, so it sleeps after 15 minutes idle and the first request afterwards
 pays a ~50 s cold start. Once awake it answers in ~250 ms; the model itself takes ~30 ms.
 
+![dashboard, flag table and API docs](docs/demo.gif)
+
+*Rendered from the live service, not a mock. The demo rows are synthetic and deliberately labelled
+as out of distribution - a 33% flag rate on them is not a performance number.*
+
 Start here: **[case study](docs/CASE_STUDY.md)** · [model card](docs/MODEL_CARD.md) ·
 [why the autoencoder lost](reports/ablation.md) ·
 [blog: the model lost to a z-score](docs/blog/01-model-saya-kalah-dari-z-score.md)
