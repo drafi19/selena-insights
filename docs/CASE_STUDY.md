@@ -134,6 +134,35 @@ So the service ships the detector that won. `POST /score` returns a `detector` f
 `zscore`. Shipping a deep model that loses to a baseline, while calling the project "AI", would
 have been the actual failure.
 
+## v0.4: two defects, measured separately
+
+The manual review left one clear lead: the ranking was driven by `days_since_prev`, not by the
+amount. v0.4.0 followed it, and behind that lead sat a second, worse problem.
+
+**Defect 1 - the score measured the wrong feature.** The shipped z-score took `max |z|` over all
+seven features. The gap feature has the widest range, so it won almost every row: 25 of the top 30
+flags were long gaps, and the 60-day clip left 24 of those 30 with identical scores. Scoring only
+`amount_z_30` and `amount_z_category_30` moved pooled PR-AUC from 0.296 to 0.436 and dropped the
+ties from 24 to 2. The gap is still computed and still shown to the reviewer as `gap_days`; it just
+does not decide the score any more.
+
+**Defect 2 - the evaluation starved its own features.** The protocol rebuilt features separately on
+train, validation and test. Rolling features need five prior rows, so the first rows of every slice
+carried `amount_z_30 = 0`, and a spike injected into a 38-row test slice was invisible. Feeding the
+real history into the feature builder - which is legitimate, the features are causal and the history
+precedes the window - took the same score from 0.436 to **0.820 PR-AUC and 0.914 ROC-AUC**. Both
+numbers now live side by side in the report, because the size of that artefact is part of the
+result.
+
+At the shipped threshold of 3.0 the detector flags 3 of 38 test rows per replicate: pooled recall
+0.650 at precision 1.000. That is the number I would have quoted a year ago without knowing it was
+fragile - three flags is three flags.
+
+The same lesson as the capstone, one level down. There, a broken normalisation and a
+percentile-50 threshold produced a dashboard full of "anomalies". Here, a well-behaved pipeline was
+quietly measuring my calendar and then under-reporting its own detector. Both times the fix was to
+look at what the number was actually computed from.
+
 ## What I would do with more data
 
 1. Retrain at >= 400 spending rows (~2 more months of logging) and re-run the ablation. The
@@ -144,8 +173,8 @@ have been the actual failure.
 3. (Done, and it did not flatter the model.) I hand-reviewed the 30 highest-scoring flags:
    **precision@30 = 0.133**, 4 genuinely unusual, 26 normal. Twenty-five of the thirty were driven by
    `days_since_prev` rather than by the amount, and the feature is clipped at 60 days, so long gaps
-   collapse onto identical scores and produce ties. The detector mostly notices holidays. Fixing
-   that is v0.4 work - changing it now would silently invalidate every number above.
+   collapse onto identical scores and produce ties. The detector mostly noticed holidays - which is
+   what v0.4.0 fixed, above.
 
 ## Limitations
 

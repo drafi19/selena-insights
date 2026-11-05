@@ -20,7 +20,7 @@ from selena_ml.scaling import MinMaxJSON
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--artifact", default="artifacts/v0.3.0")
+    ap.add_argument("--artifact", default="artifacts/v0.4.0")
     ap.add_argument("--days", type=int, default=30)
     ap.add_argument("--context-days", type=int, default=120)
     ap.add_argument("--top", type=int, default=3)
@@ -32,6 +32,11 @@ def main() -> None:
     mu = np.asarray(stats["mu"], dtype=float)
     sd = np.asarray(stats["sd"], dtype=float)
     threshold = float(stats["threshold"])
+    meta_path = art / "metadata.json"
+    meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
+    all_features = meta.get("features") or []
+    scored_features = stats.get("features")
+    cols = [all_features.index(name) for name in scored_features] if scored_features else None
 
     df, _ = prepare(to_frame(fetch_records(load_token())))
     if df.empty:
@@ -41,7 +46,10 @@ def main() -> None:
     ctx = df[df["date"] >= ctx_start].reset_index(drop=True)
 
     S = scaler.transform(build_features(ctx).to_numpy())
-    scores = np.abs((S - mu) / sd).max(axis=1)
+    if cols is None:
+        scores = np.abs((S - mu) / sd).max(axis=1)
+    else:
+        scores = np.abs((S[:, cols] - mu) / sd).max(axis=1)
 
     scored = ctx.assign(score=scores, flagged=scores > threshold)
     recent_start = df["date"].max() - pd.Timedelta(days=args.days)

@@ -16,7 +16,14 @@ from torch import nn
 
 from selena_ml.artifacts import sha256_file, write_metadata
 from selena_ml.baselines import isolation_forest_scores, zscore_scores
-from selena_ml.config import FEATURES, INJECT_RATE, SEED, TARGET_FPR, TIME_SPLIT
+from selena_ml.config import (
+    FEATURES,
+    INJECT_RATE,
+    SCORED_FEATURES,
+    SEED,
+    TARGET_FPR,
+    TIME_SPLIT,
+)
 from selena_ml.data.inject import inject_anomalies
 from selena_ml.data.load import load_transactions
 from selena_ml.evaluate import metrics_at_threshold, precision_at_k, recall_at_k
@@ -126,17 +133,20 @@ def main() -> None:
     S_inj = scaler.transform(build_features(test_injected).to_numpy())
     err_inj = ae_error(model, S_inj)
 
+    scored_cols = [FEATURES.index(f) for f in SCORED_FEATURES]
+    z_inj = zscore_scores(S_tr, S_inj, scored_cols)
+
     y = labels["is_injected"].to_numpy().astype(int)
     results = {
         "autoencoder": metrics_at_threshold(y, err_inj, threshold),
-        "zscore": metrics_at_threshold(y, zscore_scores(S_tr, S_inj), 3.0),
+        "zscore": metrics_at_threshold(y, z_inj, 3.0),
         "isolation_forest": metrics_at_threshold(
             y, isolation_forest_scores(S_tr, S_inj, SEED), thr_if
         ),
     }
     for name, scores in (
         ("autoencoder", err_inj),
-        ("zscore", zscore_scores(S_tr, S_inj)),
+        ("zscore", z_inj),
         ("isolation_forest", isolation_forest_scores(S_tr, S_inj, SEED)),
     ):
         results[name]["precision_at_10"] = precision_at_k(y, scores, 10)
@@ -145,11 +155,13 @@ def main() -> None:
     torch.save(model.state_dict(), out / "model.pt")
     scaler.to_json(out / "scaler.json")
     # the z-score detector needs the training statistics at inference time
+    S_scored = S_tr[:, scored_cols]
     (out / "zscore.json").write_text(
         json.dumps(
             {
-                "mu": S_tr.mean(axis=0).tolist(),
-                "sd": (S_tr.std(axis=0) + 1e-6).tolist(),
+                "features": SCORED_FEATURES,
+                "mu": S_scored.mean(axis=0).tolist(),
+                "sd": (S_scored.std(axis=0) + 1e-6).tolist(),
                 "threshold": 3.0,
             },
             indent=2,
@@ -163,6 +175,7 @@ def main() -> None:
     meta = {
         "model_version": args.version,
         "features": FEATURES,
+        "scored_features": SCORED_FEATURES,
         "hidden": [32, 16, 8],
         "parameters": int(sum(p.numel() for p in model.parameters())),
         "seed": args.seed,

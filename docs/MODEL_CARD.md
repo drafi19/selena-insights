@@ -1,4 +1,4 @@
-# Model card - Selena Insights v0.3.0
+# Model card - Selena Insights v0.4.0
 
 ## Intended use
 Flag unusual spending in one person's own transaction history, so they can review it. The model
@@ -20,34 +20,49 @@ price anything.
 - **No other person's data is in this repository.** Raw and processed files are gitignored.
 
 ## Architecture
-MLP autoencoder, 7 -> 32 -> 16 -> 8 -> 16 -> 32 -> 7, ReLU, sigmoid output, **1.839 parameters**.
-Same shape as the original capstone model (6 inputs, 1.774 parameters), one extra input for the
-category-relative feature. Trained with Adam (lr 1e-3, weight decay 1e-4), batch 32, early
-stopping on validation loss (patience 20). 123 epochs in the shipped run; best validation loss
-0.0367. Exported to ONNX (opset 17) for serving; parity with PyTorch is 1.2e-7.
+Two serving paths, one pipeline.
+
+- **Served default: z-score over the amount channel.** The score is `max |z|` computed only over
+  `amount_z_30` and `amount_z_category_30`, using training statistics stored in
+  `artifacts/v0.4.0/zscore.json`. Threshold 3.0. `days_since_prev` is still computed and still shown
+  to the human reviewer as `gap_days`, but it no longer enters the score - see
+  `docs/adr/0003-amount-channel-and-warm-evaluation.md`.
+- **Kept as the experiment: MLP autoencoder**, 7 -> 32 -> 16 -> 8 -> 16 -> 32 -> 7, ReLU, sigmoid
+  output, **1.839 parameters**, same shape as the original capstone model (6 inputs, 1.774
+  parameters) with one extra input for the category-relative feature. Trained with Adam (lr 1e-3,
+  weight decay 1e-4), batch 32, early stopping on validation loss (patience 20). Exported to ONNX
+  (opset 17); parity with PyTorch is 1.2e-7.
 
 ## Metrics
-Pooled over 20 injection replicates (760 labels, 10.5% positive), evaluated with
-`scripts.eval_protocol`:
+Pooled over 20 injection replicates (760 labels, 10.5% positive). **The primary table uses warm
+features**: features are built once over the whole series and sliced by split, and each injected
+test frame is scored together with the real history that precedes it. Appendix A0 of
+`reports/v0.4/eval.md` keeps the cold numbers, where features restart at every split boundary.
 
-| Detector | PR-AUC | ROC-AUC | Recall @ FPR 1% |
-|---|---|---|---|
-| Autoencoder (this model) | 0.154 | 0.570 | 0.025 |
-| z-score baseline | 0.296 | 0.791 | 0.138 |
-| IsolationForest baseline | 0.318 | 0.762 | 0.037 |
+| Detector | PR-AUC (warm) | ROC-AUC (warm) | PR-AUC (cold) | ROC-AUC (cold) |
+|---|---|---|---|---|
+| Autoencoder (this model) | 0.200 | 0.692 | 0.154 | 0.570 |
+| z-score, amount channel (served) | **0.820** | **0.914** | 0.436 | 0.762 |
+| IsolationForest baseline | 0.549 | 0.860 | 0.318 | 0.762 |
 
-**The autoencoder loses to a z-score on this data.** With ~7,000 training rows (synthetic corpus)
-it wins (PR-AUC 0.215 vs 0.173), so the limitation is sample size, not architecture. Serving
-therefore defaults to the z-score detector; the autoencoder remains available for comparison.
-Details: `reports/ablation.md`, `docs/adr/0002-detector-choice.md`.
+At the shipped threshold of 3.0, the warm z-score flags 3 of 38 test rows per replicate: pooled
+recall 0.650, precision 1.000.
+
+**The autoencoder still loses.** With ~7,000 training rows (synthetic corpus) it wins (PR-AUC 0.215
+vs 0.173), so the limitation is sample size, not architecture. Serving therefore defaults to the
+detector that won on evidence; the autoencoder remains available through the `detector` field.
+Details: `reports/ablation.md`, `reports/score_ablation.md`, `docs/adr/0002-detector-choice.md`.
 
 ## Bias and risks
 
-**The ranking is dominated by a weak feature.** Manual review of the 30 highest-scoring rows gave
-precision@30 = 0.133 (4 true positives). 25 of the 30 were driven by `days_since_prev`, not by the
-amount, so the model mostly reacts to long gaps between transactions. The feature is also clipped
-at 60 days, which makes long gaps collapse onto identical scores and produces ties at the top of
-the ranking. Any deployment decision made from the flag list inherits this bias.
+**v0.3.0 was ranking the wrong thing, and this is the record of it.** Manual review of the 30
+highest-scoring rows gave precision@30 = 0.133 (4 true positives); 25 of the 30 were driven by
+`days_since_prev` rather than by the amount, and the 60-day clip collapsed 24 of the top 30 onto
+identical scores. v0.4.0 removes that feature from the score. The flag order changed entirely - the
+30 highest warm scores are now driven only by the two amount features, with 2 ties - but the
+human-labelled number for v0.4.0 is not measured yet: `reports/manual_review_v0.4.md` is generated
+and awaiting verdicts. Until those verdicts exist, precision@30 for this version is unknown, not
+"improved".
 1. **One person, one population.** No generalisation claim is possible or intended.
 2. **Synthetic labels.** Anomalies are injected (spike, duplicate, round-number burst, micro-drip),
    so the metrics measure sensitivity to patterns I defined - not to real fraud.
@@ -57,15 +72,19 @@ the ranking. Any deployment decision made from the flag list inherits this bias.
    the detector will always miss "unusual for me" anomalies that look like ordinary amounts.
 5. **Small test set.** 38 rows; every per-replicate number is noisy, which is why the pooled
    protocol exists and why no single-run figure is quoted alone.
+6. **Context is part of the model.** The rolling features need at least five prior rows. A stateless
+   request that scores 60 rows in one batch starts cold and will flag far less than the daily
+   scorer, which keeps 120 days of context. The demo page is the cold case.
 
 ## Reproduction
 ```bash
 uv sync
 uv run python -m selena_ml.data.wallet_client     # needs ~/.wallet/token.txt (read-only token)
 uv run python -m selena_ml.data.prepare
-uv run python -m selena_ml.train --out artifacts/v0.3.0 --version v0.3.0
-uv run python -m scripts.export_onnx --artifact artifacts/v0.3.0
-uv run python -m scripts.eval_protocol --artifact artifacts/v0.3.0
+uv run python -m selena_ml.train --out artifacts/v0.4.0 --version v0.4.0
+uv run python -m scripts.export_onnx --artifact artifacts/v0.4.0
+uv run python -m scripts.eval_protocol --artifact artifacts/v0.4.0 --out reports/v0.4
+uv run python -m scripts.score_ablation --artifact artifacts/v0.4.0
 ```
 Seeds live in `selena_ml/config.py`; the training run is deterministic given the same data file
-(its SHA-256 is recorded in `artifacts/v0.3.0/metadata.json`).
+(its SHA-256 is recorded in `artifacts/v0.4.0/metadata.json`).

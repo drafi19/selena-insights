@@ -15,3 +15,6 @@ hs_err_pid*.log
 reports/manual_review.csv
 reports/manual_review.md
 reports/manual_review.html
+reports/manual_review_v0.4.csv
+reports/manual_review_v0.4.md
+reports/manual_review_v0.4.html

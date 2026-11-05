@@ -1,4 +1,4 @@
-"""Freeze a handful of scores from the shipped artefact for the regression test.
+"""Freeze the demo sample's scores from the shipped artefact for the regression test.
 
 Run once after training, and again whenever the model intentionally changes:
     uv run python -m scripts.freeze_golden
@@ -11,7 +11,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-ARTIFACT = Path("artifacts/v0.3.0")
+ARTIFACT = Path("artifacts/v0.4.0")
 
 
 def main() -> None:
@@ -22,7 +22,7 @@ def main() -> None:
     app_mod._bundle.cache_clear()
     client = TestClient(app_mod.app)
 
-    sample = json.loads(Path("web/sample.json").read_text())["transactions"][:5]
+    sample = json.loads(Path("web/sample.json").read_text())["transactions"]
     resp = client.post("/score", json={"transactions": sample})
     resp.raise_for_status()
     body = resp.json()

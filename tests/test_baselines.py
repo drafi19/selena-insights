@@ -25,3 +25,15 @@ def test_iforest_deterministic():
     a = isolation_forest_scores(train, ev, seed=7)
     b = isolation_forest_scores(train, ev, seed=7)
     assert np.allclose(a, b)
+
+
+def test_zscore_cols_excludes_other_columns():
+    rng = np.random.default_rng(3)
+    train = rng.normal(0, 1, size=(100, 3))
+    ev = rng.normal(0, 1, size=(12, 3))
+    base = zscore_scores(train, ev, cols=[0, 1])
+
+    ev_changed = ev.copy()
+    ev_changed[:, 2] = 1e9
+    assert np.allclose(base, zscore_scores(train, ev_changed, cols=[0, 1]))
+    assert not np.allclose(base, zscore_scores(train, ev_changed))

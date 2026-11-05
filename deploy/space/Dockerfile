@@ -6,6 +6,7 @@ RUN pip install --no-cache-dir -r requirements-serve.txt
 COPY selena_ml ./selena_ml
 COPY web ./web
 COPY artifacts/v0.3.0 ./artifacts/v0.3.0
-ENV SELENA_ARTIFACT_DIR=/app/artifacts/v0.3.0
+COPY artifacts/v0.4.0 ./artifacts/v0.4.0
+ENV SELENA_ARTIFACT_DIR=/app/artifacts/v0.4.0
 EXPOSE 7860
 CMD ["uvicorn", "selena_ml.serve.app:app", "--host", "0.0.0.0", "--port", "7860"]

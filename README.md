@@ -20,7 +20,7 @@ is live: **https://selena-insights.onrender.com**
 
 ```bash
 curl -s https://selena-insights.onrender.com/health
-# {"status":"ok","model_version":"v0.3.0","detector_default":"zscore","features":7}
+# {"status":"ok","model_version":"v0.4.0","detector_default":"zscore","features":7}
 ```
 
 It runs on Render's free tier, so it sleeps after 15 minutes idle and the first request afterwards
@@ -28,8 +28,9 @@ pays a ~50 s cold start. Once awake it answers in ~250 ms; the model itself take
 
 ![dashboard, flag table and API docs](docs/demo.gif)
 
-*Rendered from the live service, not a mock. The demo rows are synthetic and deliberately labelled
-as out of distribution - a 33% flag rate on them is not a performance number.*
+*Rendered from the live service, not a mock. The demo rows are synthetic, and the page scores a
+single cold batch with no history, so it flags far less than the daily scorer does. A flag rate on
+this page is not a performance number.*
 
 Start here: **[case study](docs/CASE_STUDY.md)** · [model card](docs/MODEL_CARD.md) ·
 [why the autoencoder lost](reports/ablation.md) ·
@@ -37,31 +38,47 @@ Start here: **[case study](docs/CASE_STUDY.md)** · [model card](docs/MODEL_CARD
 
 ## Results
 
-Pooled over 20 injection replicates (760 labels, 10.5% positive), test set 38 rows, calibrated at
-a 1% false-positive rate:
+Pooled over 20 injection replicates (760 labels, 10.5% positive), test set 38 rows. The primary
+columns are **warm**: features are built once over the full series and sliced by split, and every
+injected test frame is scored together with the real history that precedes it. The cold columns are
+the old path, where features restart at every split boundary.
 
-| Detector | PR-AUC | ROC-AUC | Recall @ FPR 1% |
-|---|---|---|---|
-| Autoencoder, 6 features | 0.170 | 0.598 | 0.025 |
-| Autoencoder, 7 features (+ category) | 0.154 | 0.570 | 0.025 |
-| z-score | 0.296 | 0.791 | 0.138 |
-| IsolationForest | 0.318 | 0.762 | 0.037 |
+| Detector | PR-AUC | ROC-AUC | PR-AUC (cold) | ROC-AUC (cold) |
+|---|---|---|---|---|
+| Autoencoder, 7 features | 0.200 | 0.692 | 0.154 | 0.570 |
+| z-score, amount channel (served) | **0.820** | **0.914** | 0.436 | 0.762 |
+| IsolationForest | 0.549 | 0.860 | 0.318 | 0.762 |
 
-Chance level is 0.105. **The autoencoder loses.** On a 10,000-row synthetic corpus with ~7,000
-training rows it beats both baselines (PR-AUC 0.215 vs 0.173), so the gap is sample size - 175
-training rows cannot support 1,839 parameters. Adding a category-relative feature did not help on
-real data; that negative ablation is published in `reports/ablation.md`.
+Chance level is 0.105. At the shipped threshold of 3.0 the served detector flags 3 of 38 test rows
+per replicate: pooled recall 0.650 at precision 1.000.
+
+Two defects were found and measured on the way here. The v0.3.0 score took `max |z|` over all seven
+features, so `days_since_prev` dominated it: 25 of the top 30 flags were long gaps, and the 60-day
+clip left 24 of those 30 tied. Scoring only the amount channel moved pooled PR-AUC from 0.296 to
+0.436 on the old protocol. Then the protocol itself turned out to be wrong: rebuilding features per
+split restarts the rolling windows at zero, which hides injected spikes inside a 38-row test slice.
+With history, the same score reaches 0.820. Both steps are in `reports/score_ablation.md` and
+`docs/adr/0003-amount-channel-and-warm-evaluation.md`.
+
+**The autoencoder loses.** On a 10,000-row synthetic corpus with ~7,000 training rows it beats both
+baselines (PR-AUC 0.215 vs 0.173), so the gap is sample size - 175 training rows cannot support
+1,839 parameters. Adding a category-relative feature did not help on real data; that negative
+ablation is published in `reports/ablation.md`.
 
 Serving therefore defaults to the detector that won on evidence, not the one with the better
 resume: `detector` is part of every API response (`docs/adr/0002-detector-choice.md`).
 
 ### The only human-labelled number
 
-I reviewed the top 30 flags myself: **4 were genuinely unusual, 26 were normal - precision@30 =
-0.133** (`reports/manual_review_summary.md`). Three of the four sit at 3.05, barely above the 3.0
-threshold, and 25 of the 30 flags are driven by `days_since_prev` rather than by the amount: the
-detector mostly notices long gaps between transactions, and a gap is a holiday, not an anomaly.
-That is the honest state of v0.3.0 and the starting point for v0.4.
+I reviewed the top 30 flags of v0.3.0 myself: **4 were genuinely unusual, 26 were normal -
+precision@30 = 0.133** (`reports/manual_review_summary.md`). Three of the four sat at 3.05, barely
+above the 3.0 threshold, and 25 of the 30 flags were driven by `days_since_prev` rather than by the
+amount: the detector was noticing long gaps between transactions, and a gap is a holiday, not an
+anomaly. That review is what started v0.4.0.
+
+The v0.4.0 sheet is generated - `reports/manual_review_v0.4.md`, 30 rows, drivers now only
+`amount_z_30` and `amount_z_category_30` - and **it is not labelled yet**. So precision@30 for
+v0.4.0 is unknown, and this README does not claim it improved.
 
 ## How it works
 
@@ -71,8 +88,9 @@ That is the honest state of v0.3.0 and the starting point for v0.4.
 2. **Features** - seven, all causal (row *i* only sees rows <= *i*): log amount, day of week, day
    of month, month, days since previous transaction, rolling z-score of amount, rolling z-score
    within the same category.
-3. **Detectors** - autoencoder (7-32-16-8-16-32-7) plus two baselines, each with its own threshold
-   calibrated on a clean holdout at 1% FPR.
+3. **Detectors** - autoencoder (7-32-16-8-16-32-7) plus two baselines. The served z-score scores
+   only the amount channel; the gap feature is still computed and shown to the reviewer, but it is
+   not scored (`docs/adr/0003-amount-channel-and-warm-evaluation.md`).
 4. **Labels** - none exist, so anomalies are injected with a fixed seed (spike, duplicate,
    round-number burst, micro-drip) and metrics are pooled across 20 replicates.
 5. **Serving** - the model is exported to ONNX; FastAPI keeps pandas for features and onnxruntime
@@ -84,9 +102,10 @@ That is the honest state of v0.3.0 and the starting point for v0.4.
 uv sync
 uv run python -m selena_ml.data.wallet_client      # read-only pull, needs ~/.wallet/token.txt
 uv run python -m selena_ml.data.prepare            # transfer / lending / income filtered out
-uv run python -m selena_ml.train --out artifacts/v0.3.0 --version v0.3.0
-uv run python -m scripts.export_onnx --artifact artifacts/v0.3.0
-uv run python -m scripts.eval_protocol --artifact artifacts/v0.3.0
+uv run python -m selena_ml.train --out artifacts/v0.4.0 --version v0.4.0
+uv run python -m scripts.export_onnx --artifact artifacts/v0.4.0
+uv run python -m scripts.eval_protocol --artifact artifacts/v0.4.0 --out reports/v0.4
+uv run python -m scripts.score_ablation --artifact artifacts/v0.4.0
 uv run uvicorn selena_ml.serve.app:app --port 8000
 ```
 
@@ -115,8 +134,8 @@ Actual output on a clean clone (no private data present):
 == 1/4 lint
 == 2/4 tests
 == 3/4 serving smoke (no private data needed)
-health: {"status": "ok", "model_version": "v0.3.0", "detector_default": "zscore", "features": 7}
-scored 10 demo rows with detector=zscore, threshold=3.000, flagged=3
+health: {"status": "ok", "model_version": "v0.4.0", "detector_default": "zscore", "features": 7}
+scored 10 demo rows with detector=zscore, threshold=3.000, flagged=0
 smoke ok
 == 4/4 SKIPPED: data/processed/spending.parquet not present (private Wallet export).
 ```
@@ -133,7 +152,7 @@ selena_ml/          features, scaling, baselines, autoencoder, train, evaluate
 selena_ml/serve/    pydantic schema + FastAPI app
 scripts/            audit, eval protocol, ONNX export, ablation, benchmark, deploy
 reports/            generated eval + ablation (never hand-edited)
-artifacts/v0.3.0/   model.pt, model.onnx, scaler.json, zscore.json, threshold.json, metadata.json
+artifacts/v0.4.0/   model.pt, model.onnx, scaler.json, zscore.json, threshold.json, metadata.json
 docs/               model card, ADR, bug write-up, security note, wallet audit
 ```
 
@@ -146,6 +165,9 @@ docs/               model card, ADR, bug write-up, security note, wallet audit
    but ordinary in size" anomalies will be missed.
 5. **38-row test set.** Every per-replicate number is noisy, which is why the protocol pools
    replicates instead of quoting one run.
+6. **Context is part of the model.** Rolling features need at least five prior rows. A stateless
+   request that scores one batch starts cold, so the demo page flags less than the daily scorer,
+   which keeps 120 days of context.
 
 ## Credits and scope of this work
 
@@ -175,6 +197,5 @@ MIT - see `LICENSE`.
 
 - Nothing blocking the repo itself. The Hugging Face Space is unused because Docker Spaces now
   return **402 Payment Required** on a free account; `render.yaml` is what actually deployed.
-- 30 hand-reviewed flags for a human-labelled precision number (`scripts.review_flags` produces
-  the CSV; the review itself is manual).
-- A demo GIF.
+- Verdicts for the v0.4.0 review sheet (`reports/manual_review_v0.4.md`): the CSV is generated, the
+  labelling is manual, and until it is done precision@30 for this version stays unmeasured.

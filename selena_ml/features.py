@@ -3,10 +3,9 @@
 Rule: the features of row i may only use rows <= i. Output row order matches input order
 (so the API response lines up 1:1 with the request), even though the maths runs in time order.
 
-Methodological note: rolling statistics do NOT carry across splits. Each call starts cold
-(`min_periods=5`), so the first rows of val/test have `amount_z_30 = 0`. That is deliberate for
-offline evaluation (no information from the future leaking backwards); the effect is recorded in
-`docs/MODEL_CARD.md` as a warm-up limitation.
+Rolling statistics need history. Calling `build_features` separately on each split restarts the
+windows cold (`min_periods=5`), so the first rows of val/test get `amount_z_30 = 0` even though
+real transactions precede them. Use `build_features_with_history` whenever earlier rows exist.
 """
 from __future__ import annotations
 
@@ -64,3 +63,20 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
 
     feats = out.loc[:, ["_pos", *FEATURES]].sort_values("_pos")
     return feats.loc[:, FEATURES].reset_index(drop=True)
+
+
+def build_features_with_history(history: pd.DataFrame, rows: pd.DataFrame) -> pd.DataFrame:
+    """Build features for `rows` using `history` as context.
+
+    Rolling windows (and the gap to the previous transaction) need earlier transactions to be
+    correct. Calling `build_features` on `rows` alone starts every window cold, so a spike in
+    the first few rows looks ordinary (`amount_z_30 = 0`). Concatenating the real, chronologically
+    earlier `history` and building once gives each row in `rows` the same feature value it would
+    have had in a single pass over the full series. The result contains only the `rows` rows, in
+    their original order, with a fresh index.
+    """
+    if len(rows) == 0:
+        return pd.DataFrame(columns=FEATURES)
+    combined = pd.concat([history, rows], ignore_index=True)
+    feats = build_features(combined)
+    return feats.iloc[len(history) :].reset_index(drop=True)

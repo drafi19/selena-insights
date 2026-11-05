@@ -19,4 +19,4 @@ services:
     autoDeploy: true
     envVars:
       - key: SELENA_ARTIFACT_DIR
-        value: /app/artifacts/v0.3.0
+        value: /app/artifacts/v0.4.0

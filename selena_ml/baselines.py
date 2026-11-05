@@ -5,7 +5,16 @@ import numpy as np
 from sklearn.ensemble import IsolationForest
 
 
-def zscore_scores(X_train: np.ndarray, X_eval: np.ndarray, eps: float = 1e-6) -> np.ndarray:
+def zscore_scores(
+    X_train: np.ndarray,
+    X_eval: np.ndarray,
+    cols=None,
+    eps: float = 1e-6,
+) -> np.ndarray:
+    if cols is not None:
+        cols = list(cols)
+        X_train = X_train[:, cols]
+        X_eval = X_eval[:, cols]
     mu = X_train.mean(axis=0)
     sd = X_train.std(axis=0) + eps
     return np.abs((X_eval - mu) / sd).max(axis=1)

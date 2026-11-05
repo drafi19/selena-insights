@@ -14,6 +14,7 @@ FEATURES = [
     "amount_z_30",
     "amount_z_category_30",
 ]
+SCORED_FEATURES = ["amount_z_30", "amount_z_category_30"]
 TIME_SPLIT = (0.70, 0.15, 0.15)
 ARTIFACT_ROOT = Path("artifacts")
 DEFAULT_VERSION = "v0.1.0"

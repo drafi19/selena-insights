@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 GOLDEN = Path("tests/golden_scores.json")
-ARTIFACT = Path("artifacts/v0.3.0")
+ARTIFACT = Path("artifacts/v0.4.0")
 
 
 @pytest.mark.skipif(not GOLDEN.exists(), reason="golden scores not frozen yet")

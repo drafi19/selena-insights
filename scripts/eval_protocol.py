@@ -32,7 +32,7 @@ from selena_ml.data.inject import ANOMALY_TYPES, inject_anomalies
 from selena_ml.data.load import load_transactions
 from selena_ml.data.synthetic import simulate_transactions
 from selena_ml.evaluate import metrics_at_threshold, precision_at_k
-from selena_ml.features import build_features
+from selena_ml.features import build_features, build_features_with_history
 from selena_ml.models.autoencoder import AutoEncoder
 from selena_ml.scaling import MinMaxJSON
 from selena_ml.train import fit_autoencoder, split_time
@@ -42,13 +42,16 @@ SYNTH_SEEDS = 3
 MIN_CATEGORY_ROWS = 10
 
 
-def load_artifact(art: Path) -> tuple[AutoEncoder, MinMaxJSON, float]:
+def load_artifact(art: Path) -> tuple[AutoEncoder, MinMaxJSON, float, dict, dict]:
     model = AutoEncoder(n_features=len(FEATURES))
     model.load_state_dict(torch.load(art / "model.pt", map_location="cpu", weights_only=True))
     model.eval()
     scaler = MinMaxJSON.from_json(art / "scaler.json")
     threshold = json.loads((art / "threshold.json").read_text())["threshold"]
-    return model, scaler, float(threshold)
+    meta = json.loads((art / "metadata.json").read_text())
+    zscore_path = art / "zscore.json"
+    zstats = json.loads(zscore_path.read_text()) if zscore_path.exists() else {"threshold": 3.0}
+    return model, scaler, float(threshold), meta, zstats
 
 
 def ae_error(model: AutoEncoder, S: np.ndarray) -> np.ndarray:
@@ -56,10 +59,10 @@ def ae_error(model: AutoEncoder, S: np.ndarray) -> np.ndarray:
         return model.reconstruction_error(torch.tensor(S, dtype=torch.float32)).numpy()
 
 
-def all_scores(model, S_train, S_eval) -> dict[str, np.ndarray]:
+def all_scores(model, S_train, S_eval, zscore_cols=None) -> dict[str, np.ndarray]:
     return {
         "autoencoder": ae_error(model, S_eval),
-        "zscore": zscore_scores(S_train, S_eval),
+        "zscore": zscore_scores(S_train, S_eval, zscore_cols),
         "isolation_forest": isolation_forest_scores(S_train, S_eval, SEED),
     }
 
@@ -73,28 +76,56 @@ def mean_std(values) -> str:
     return f"{np.mean(vals):.3f} +- {np.std(vals):.3f}"
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--artifact", default="artifacts/v0.1.0")
-    ap.add_argument("--data", default="data/processed/spending.parquet")
-    ap.add_argument("--replicates", type=int, default=EVAL_REPLICATES)
-    ap.add_argument("--out", default="reports")
-    args = ap.parse_args()
+def split_feature_frames(df, warm: bool):
+    """Return the split frames plus train/val features.
 
-    model, scaler, thr_ae = load_artifact(Path(args.artifact))
-    df = load_transactions(args.data)
+    warm=True builds once on the full series and slices by split position (train is first, so
+    its slice equals the old cold build). warm=False keeps the old per-split path for table A0.
+    """
     train_df, val_df, test_df = split_time(df)
+    if warm:
+        full = build_features(df)
+        a = len(train_df)
+        b = a + len(val_df)
+        return (
+            train_df,
+            val_df,
+            test_df,
+            full.iloc[:a].reset_index(drop=True),
+            full.iloc[a:b].reset_index(drop=True),
+        )
+    return (
+        train_df,
+        val_df,
+        test_df,
+        build_features(train_df),
+        build_features(val_df),
+    )
 
-    S_tr = scaler.transform(build_features(train_df).to_numpy())
-    S_va = scaler.transform(build_features(val_df).to_numpy())
+
+def run_real_protocol(
+    df,
+    model,
+    scaler,
+    thr_ae: float,
+    zscore_threshold: float,
+    zscore_cols,
+    replicates: int,
+    warm: bool,
+) -> dict:
+    """Run tables A/A2/B on the real test split, warm or through the old cold path."""
+    train_df, val_df, test_df, f_tr, f_va = split_feature_frames(df, warm)
+    S_tr = scaler.transform(f_tr.to_numpy())
+    S_va = scaler.transform(f_va.to_numpy())
 
     thresholds = {
         "autoencoder": thr_ae,
-        "zscore": 3.0,
+        "zscore": zscore_threshold,
         "isolation_forest": float(
             np.quantile(isolation_forest_scores(S_tr, S_va, SEED), 1.0 - TARGET_FPR)
         ),
     }
+    history = df.iloc[: len(train_df) + len(val_df)].reset_index(drop=True)
 
     rows: dict[str, list[dict]] = {m: [] for m in MODELS}
     by_type: dict[str, list[float]] = {t: [] for t in ANOMALY_TYPES}
@@ -102,10 +133,14 @@ def main() -> None:
     pooled_y: list[np.ndarray] = []
     pooled_scores: dict[str, list[np.ndarray]] = {m: [] for m in MODELS}
 
-    for r in range(args.replicates):
+    for r in range(replicates):
         injected, labels = inject_anomalies(test_df, rate=INJECT_RATE, seed=10_000 + r)
-        S_inj = scaler.transform(build_features(injected).to_numpy())
-        scores = all_scores(model, S_tr, S_inj)
+        if warm:
+            feats = build_features_with_history(history, injected)
+        else:
+            feats = build_features(injected)
+        S_inj = scaler.transform(feats.to_numpy())
+        scores = all_scores(model, S_tr, S_inj, zscore_cols)
         y = labels["is_injected"].to_numpy().astype(int)
         positives.append(int(y.sum()))
         pooled_y.append(y)
@@ -126,6 +161,49 @@ def main() -> None:
         name: metrics_at_threshold(yy, np.concatenate(pooled_scores[name]), thresholds[name])
         for name in MODELS
     }
+    return {
+        "rows": rows,
+        "by_type": by_type,
+        "positives": positives,
+        "yy": yy,
+        "pooled": pooled,
+        "thresholds": thresholds,
+    }
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--artifact", default="artifacts/v0.4.0")
+    ap.add_argument("--data", default="data/processed/spending.parquet")
+    ap.add_argument("--replicates", type=int, default=EVAL_REPLICATES)
+    ap.add_argument("--out", default="reports")
+    args = ap.parse_args()
+
+    model, scaler, thr_ae, meta, zstats = load_artifact(Path(args.artifact))
+    feature_names = meta.get("features", FEATURES)
+    if zstats.get("features"):
+        zscore_cols = [feature_names.index(name) for name in zstats["features"]]
+    else:
+        zscore_cols = None
+    zscore_threshold = float(zstats.get("threshold", 3.0))
+    df = load_transactions(args.data)
+    train_df, _val_df, test_df = split_time(df)
+
+    # Primary result: features are built once over the full series and the injection replicates
+    # keep the real history that precedes the test window.
+    warm = run_real_protocol(
+        df, model, scaler, thr_ae, zscore_threshold, zscore_cols, args.replicates, warm=True
+    )
+    # Appendix A0: the old per-split cold path, kept runnable so the report can compare both.
+    cold = run_real_protocol(
+        df, model, scaler, thr_ae, zscore_threshold, zscore_cols, args.replicates, warm=False
+    )
+    rows = warm["rows"]
+    by_type = warm["by_type"]
+    positives = warm["positives"]
+    yy = warm["yy"]
+    pooled = warm["pooled"]
+    cold_pooled = cold["pooled"]
 
     # C trains a SEPARATE model on the synthetic corpus. Applying the real-data model to synthetic
     # rows would only measure domain shift, not how the method behaves with more data.
@@ -152,7 +230,7 @@ def main() -> None:
         S_inj = syn_scaler.transform(build_features(injected).to_numpy())
         scores = {
             "autoencoder": ae_error(syn_model, S_inj),
-            "zscore": zscore_scores(Ssyn_tr, S_inj),
+            "zscore": zscore_scores(Ssyn_tr, S_inj, zscore_cols),
             "isolation_forest": isolation_forest_scores(Ssyn_tr, S_inj, SEED),
         }
         y = labels["is_injected"].to_numpy().astype(int)
@@ -180,13 +258,21 @@ def main() -> None:
     per_category.sort(key=lambda d: (-d["flag_rate"], -d["n"]))
 
     lines = [
-        "# Evaluation - v0.1.0",
+        f"# Evaluation - {meta.get('model_version', Path(args.artifact).name)} - warm features",
         "",
         f"Model trained on real Wallet spending (n={len(train_df)}). Test n={len(test_df)}; "
         f"injection {INJECT_RATE:.0%} x {args.replicates} replicates "
         f"(~{int(np.mean(positives))} labels per replicate).",
         "",
-        "## A. Real test set",
+        "Features are **warm**: tables A and A2 build features once over the full series and slice",
+        "by split position, and every injection replicate uses the real history that precedes the",
+        "test window. The cold numbers in appendix A0 rebuild features separately per split, which",
+        "restarts the rolling windows at zero. That cold start is an artefact of rebuilding",
+        "features per split, not a property of the detector: the served daily scorer keeps context",
+        "(`scripts/daily_score.py --context-days`), while the demo page does not. That difference",
+        "is why the demo shows few flags.",
+        "",
+        "## A. Real test set (warm features)",
         "",
         "| Model | PR-AUC | ROC-AUC | Precision | Recall | F1 | P@10 | Flagged |",
         "|---|---|---|---|---|---|---|---|",
@@ -220,6 +306,23 @@ def main() -> None:
             f"| {name} | {mean_std([pp['pr_auc']])} | {mean_std([pp['roc_auc']])} | "
             f"{mean_std([pp['precision']])} | {mean_std([pp['recall']])} | "
             f"{mean_std([pp['f1']])} |"
+        )
+
+    lines += [
+        "",
+        "## A0. Cold-start baseline (old path, not primary)",
+        "",
+        "The same detectors and seeds, but features are rebuilt separately on train, val, test and",
+        "every injected test frame, so the rolling windows start cold. This is the old number set;",
+        "compare it with the warm numbers in A2.",
+        "",
+        "| Model | PR-AUC | ROC-AUC |",
+        "|---|---|---|",
+    ]
+    for name in MODELS:
+        cp = cold_pooled[name]
+        lines.append(
+            f"| {name} | {mean_std([cp['pr_auc']])} | {mean_std([cp['roc_auc']])} |"
         )
 
     lines += [
@@ -283,8 +386,15 @@ def main() -> None:
     (out_dir / "eval.md").write_text("\n".join(lines) + "\n")
     (out_dir / "eval.json").write_text(
         json.dumps(
-            {"real": rows, "pooled": pooled, "by_type": by_type,
-             "synthetic": synth_rows, "per_category": per_category},
+            {
+                "features": "warm",
+                "real": rows,
+                "pooled": pooled,
+                "cold_pooled": cold_pooled,
+                "by_type": by_type,
+                "synthetic": synth_rows,
+                "per_category": per_category,
+            },
             indent=2,
         )
     )

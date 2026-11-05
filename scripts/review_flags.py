@@ -34,7 +34,7 @@ LABELS = {
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--artifact", default="artifacts/v0.3.0")
+    ap.add_argument("--artifact", default="artifacts/v0.4.0")
     ap.add_argument("--data", default="data/processed/spending.parquet")
     ap.add_argument("--days", type=int, default=90)
     ap.add_argument("--top", type=int, default=30)
@@ -49,32 +49,39 @@ def main() -> None:
         raise SystemExit("only the z-score detector is supported here (it is the default)")
 
     stats = json.loads((art / "zscore.json").read_text())
-    mu = np.asarray(stats["mu"], dtype=float)
-    sd = np.asarray(stats["sd"], dtype=float)
     threshold = float(stats["threshold"])
     meta_path = art / "metadata.json"
     meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
-    features = meta.get("features") or list(LABELS)
+    all_features = meta.get("features") or list(LABELS)
+    scored_features = stats.get("features") or meta.get("scored_features")
+    if scored_features:
+        cols = [all_features.index(name) for name in scored_features]
+    else:
+        cols = list(range(len(all_features)))
+        scored_features = all_features
+    mu = np.asarray(stats["mu"], dtype=float)
+    sd = np.asarray(stats["sd"], dtype=float)
 
     df = load_transactions(args.data)
+    df = df.assign(gap_days=df["date"].diff().dt.days)
     cutoff = df["date"].max() - pd.Timedelta(days=args.days)
     recent = df[df["date"] >= cutoff].reset_index(drop=True)
 
     S = scaler.transform(build_features(recent).to_numpy())
-    z = np.abs((S - mu) / sd)
+    z = np.abs((S[:, cols] - mu) / sd)
     scores = z.max(axis=1)
 
     driver_idx = z.argmax(axis=1)
     drivers: list[str] = []
     why: list[str] = []
     for row, col in enumerate(driver_idx):
-        name = features[col]
+        name = scored_features[col]
         drivers.append(name)
         why.append(f"{LABELS.get(name, name)} {z[row, col]:.1f} sigma")
 
     out = recent.assign(score=scores, flagged=scores > threshold, driver=drivers, why=why)
     out = out.sort_values("score", ascending=False).head(args.top)
-    keep = ("date", "amount", "category", "score", "flagged", "driver", "why")
+    keep = ("date", "amount", "category", "gap_days", "score", "flagged", "driver", "why")
     out = out[[c for c in keep if c in out.columns]].assign(verdict="")
 
     path = Path(args.out)
@@ -84,11 +91,12 @@ def main() -> None:
     md = Path(args.out).with_suffix(".md")
     lines = [f"# Manual review - {len(out)} top flags", "",
              f"threshold {threshold:.3f} · {int(out['flagged'].sum())} above it", "",
-             "| # | date | amount | category | score | driver | why | verdict |",
-             "|---|---|---|---|---|---|---|---|"]
+             "| # | date | amount | category | gap_days | score | driver | why | verdict |",
+             "|---|---|---|---|---|---|---|---|---|"]
     for i, row in enumerate(out.itertuples(), 1):
+        gap = "" if pd.isna(row.gap_days) else str(int(row.gap_days))
         lines.append(
-            f"| {i} | {row.date.date()} | Rp{int(row.amount):,} | {row.category} | "
+            f"| {i} | {row.date.date()} | Rp{int(row.amount):,} | {row.category} | {gap} | "
             f"{row.score:.3f} | {row.driver} | {row.why} |  |"
         )
     lines += ["", "verdict: `y` = genuinely unusual, `n` = normal, `m` = borderline.",

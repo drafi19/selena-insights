@@ -37,9 +37,10 @@
 <body>
   <h1>Selena Insights</h1>
   <p class="sub">Personal transaction anomaly detection &mdash; demo on synthetic rows, never real data.</p>
-  <p class="note">The detector was calibrated on one real account, so these synthetic rows sit
-  slightly out of distribution: expect a much higher flag rate here (~1 in 3) than the 0.8%
-  measured on real data. This page demonstrates the pipeline, it is not a performance number.</p>
+  <p class="note">The detector was calibrated on one real account. This page scores a single batch
+  with no history, so the rolling features start cold and far fewer rows are flagged here than in
+  the daily scorer, which keeps 120 days of context. A flag count on this page is not a performance
+  number.</p>
   <div class="legend">
     <span><span class="dot flag"></span>flagged as anomaly</span>
     <span><span class="dot normal"></span>normal</span>

@@ -4,7 +4,7 @@ import pytest
 
 from selena_ml.config import FEATURES
 from selena_ml.data.synthetic import make_synthetic
-from selena_ml.features import build_features
+from selena_ml.features import build_features, build_features_with_history
 
 
 def test_shape_and_columns():
@@ -60,3 +60,37 @@ def test_missing_category_column_still_works():
     feats = build_features(df)
     assert "amount_z_category_30" in feats.columns
     assert feats["amount_z_category_30"].abs().max() <= 5.0
+
+
+def test_history_returns_exactly_the_requested_rows():
+    full = make_synthetic(n=100, seed=7)
+    history = full.iloc[:60].reset_index(drop=True)
+    rows = full.iloc[60:].reset_index(drop=True)
+    warm = build_features_with_history(history, rows)
+    assert len(warm) == len(rows)
+    assert list(warm.columns) == FEATURES
+
+
+def test_history_tail_matches_single_pass():
+    full = make_synthetic(n=100, seed=8)
+    history = full.iloc[:60].reset_index(drop=True)
+    rows = full.iloc[60:].reset_index(drop=True)
+    warm = build_features_with_history(history, rows)
+    full_feats = build_features(full)
+    pd.testing.assert_frame_equal(warm, full_feats.iloc[60:].reset_index(drop=True))
+
+
+def test_row_near_the_seam_has_history_context():
+    full = make_synthetic(n=100, seed=9)
+    history = full.iloc[:60].reset_index(drop=True)
+    rows = full.iloc[60:].reset_index(drop=True)
+    warm = build_features_with_history(history, rows)
+    assert abs(warm.loc[0, "amount_z_30"]) > 1e-6
+
+
+def test_history_with_empty_rows_is_empty():
+    history = make_synthetic(n=40, seed=10)
+    empty = history.iloc[:0]
+    warm = build_features_with_history(history, empty)
+    assert len(warm) == 0
+    assert list(warm.columns) == FEATURES

@@ -22,10 +22,10 @@ from selena_ml.features import build_features
 from selena_ml.scaling import MinMaxJSON
 from selena_ml.serve.schema import ScoredTxn, ScoreRequest, ScoreResponse
 
-ARTIFACT_DIR = Path(os.environ.get("SELENA_ARTIFACT_DIR", "artifacts/v0.3.0"))
+ARTIFACT_DIR = Path(os.environ.get("SELENA_ARTIFACT_DIR", "artifacts/v0.4.0"))
 WEB_DIR = Path(os.environ.get("SELENA_WEB_DIR", "web"))
 
-app = FastAPI(title="Selena Insights", version="0.3.0")
+app = FastAPI(title="Selena Insights", version="0.4.0")
 
 
 @lru_cache(maxsize=1)
@@ -95,7 +95,11 @@ def score(req: ScoreRequest) -> ScoreResponse:
     if detector == "zscore":
         mu = np.asarray(zscore["mu"], dtype=float)
         sd = np.asarray(zscore["sd"], dtype=float)
-        scores = np.abs((S - mu) / sd).max(axis=1)
+        if "features" in zscore:
+            cols = [meta["features"].index(name) for name in zscore["features"]]
+            scores = np.abs((S[:, cols] - mu) / sd).max(axis=1)
+        else:
+            scores = np.abs((S - mu) / sd).max(axis=1)
         threshold = float(zscore["threshold"])
     elif detector == "autoencoder":
         reconstruction = session.run(None, {"input": S.astype("float32")})[0]

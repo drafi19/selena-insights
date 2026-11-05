@@ -18,7 +18,7 @@ from selena_ml.models.autoencoder import AutoEncoder
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--artifact", default="artifacts/v0.3.0")
+    ap.add_argument("--artifact", default="artifacts/v0.4.0")
     ap.add_argument("--atol", type=float, default=1e-5)
     args = ap.parse_args()
 
